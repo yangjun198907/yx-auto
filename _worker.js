@@ -36,6 +36,17 @@ function isValidUUID(str) {
     return uuidRegex.test(str);
 }
 
+// --- 核心修复：支持中文的 Base64 编码 ---
+function safeBtoa(str) {
+    try {
+        return btoa(encodeURIComponent(str).replace(/%([0-9A-F]{2})/g, (match, p1) => {
+            return String.fromCharCode('0x' + p1);
+        }));
+    } catch (e) {
+        return btoa(str);
+    }
+}
+
 // 从环境变量获取配置
 function getConfigValue(key, defaultValue) {
     return defaultValue || '';
@@ -439,7 +450,7 @@ function generateVMessLinksFromSource(list, user, workerDomain, disableNonTLS = 
                 vmessConfig.sni = workerDomain;
                 vmessConfig.fp = "chrome";
             }
-            const vmessBase64 = btoa(JSON.stringify(vmessConfig));
+            const vmessBase64 = safeBtoa(JSON.stringify(vmessConfig));
             links.push(`vmess://${vmessBase64}`);
         });
     });
@@ -599,12 +610,13 @@ async function handleSubscriptionRequest(request, user, customDomain, piu, ipv4E
                     }).filter(item => item !== null);
                     
                     if (IP列表.length > 0) {
-                        const hasProtocol = evEnabled || etEnabled || vmEnabled;
-                        const useVL = hasProtocol ? evEnabled : true;
+						const hasProtocol = evEnabled || etEnabled || vmEnabled;
+						const useVL = hasProtocol ? evEnabled : true;
                         
-                        if (useVL) {
+						if (useVL) {
                             finalLinks.push(...generateLinksFromNewIPs(IP列表, user, nodeDomain, wsPath));
-                        }
+					   
+						}
                     }
                 }
             } else {
@@ -1921,9 +1933,10 @@ export default {
             const piu = url.searchParams.get('piu') || defaultIPURL;
             
             // 协议选择
-            const evEnabled = url.searchParams.get('ev') === 'yes' || (url.searchParams.get('ev') === null && ev);
+            const evEnabled = url.searchParams.get('ev') === 'yes';
             const etEnabled = url.searchParams.get('et') === 'yes';
             const vmEnabled = url.searchParams.get('vm') === 'yes';
+			const dkby = url.searchParams.get('dkby') === 'yes';
             
             // IPv4/IPv6选择
             const ipv4Enabled = url.searchParams.get('ipv4') !== 'no';
@@ -1946,4 +1959,3 @@ export default {
         return new Response('Not Found', { status: 404 });
     }
 };
-
