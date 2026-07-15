@@ -33,7 +33,11 @@ const directDomains = [
 ];
 
 // 默认优选IP来源URL
-const defaultIPURL = 'https://raw.githubusercontent.com/qwer-search/bestip/refs/heads/main/kejilandbestip.txt';
+const defaultIPURL = `https://raw.githubusercontent.com/qwer-search/bestip/refs/heads/main/kejilandbestip.txt
+https://bestcf.pages.dev/wetest/ipv4.txt
+https://bestcf.pages.dev/tiancheng/mini.txt
+https://bestcf.pages.dev/vps789/top20.txt
+https://090227.pages.dev/bestcf?isp=all&ips=20`;
 
 // UUID验证
 function isValidUUID(str) {
@@ -546,61 +550,26 @@ async function handleSubscriptionRequest(request, user, customDomain, piu, ipv4E
     // GitHub优选 / 优选API
     if (egi) {
         try {
-            // 检查是否是优选API URL（以https://开头）
-            if (piu && piu.toLowerCase().startsWith('https://')) {
-                // 从优选API获取IP列表
-                const 优选API的IP = await 请求优选API([piu]);
-                if (优选API的IP && 优选API的IP.length > 0) {
-                    // 解析IP字符串格式：IP:端口#备注
-                    const IP列表 = 优选API的IP.map(原始地址 => {
-                        // 统一正则: 匹配 域名/IPv4/IPv6地址 + 可选端口 + 可选备注
-                        const regex = /^(\[[\da-fA-F:]+\]|[\d.]+|[a-zA-Z0-9](?:[a-zA-Z0-9-]*[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]*[a-zA-Z0-9])?)*)(?::(\d+))?(?:#(.+))?$/;
-                        const match = 原始地址.match(regex);
-
-                        if (match) {
-                            const 节点地址 = match[1].replace(/[\[\]]/g, ''); // 移除IPv6的方括号
-                            const 节点端口 = match[2] || 443;
-                            const 节点备注 = match[3] || 节点地址;
-                            return {
-                                ip: 节点地址,
-                                port: parseInt(节点端口),
-                                name: 节点备注
-                            };
-                        }
-                        return null;
-                    }).filter(item => item !== null);
-                    
-                    if (IP列表.length > 0) {
-                        const hasProtocol = evEnabled || etEnabled || vmEnabled;
-                        const useVL = hasProtocol ? evEnabled : true;
-                        
-                        if (useVL) {
-                            finalLinks.push(...generateLinksFromNewIPs(IP列表, user, nodeDomain, wsPath, echConfig));
-                        }
-                    }
-                }
-            } else if (piu && piu.includes('\n')) {
-                // 支持多行文本，包含混合格式（优选API URL + IP列表）
+            // 【核心修复】：优先判断是否包含换行符（多行混合模式）
+            if (piu && piu.includes('\n')) {
                 const 完整优选列表 = await 整理成数组(piu);
-                const 优选API = [], 优选IP = [], 其他节点 = [];
+                const 优选API = [], 优选IP = [];
                 
                 for (const 元素 of 完整优选列表) {
                     if (元素.toLowerCase().startsWith('https://')) {
-                        优选API.push(元素);
-                    } else if (元素.toLowerCase().includes('://')) {
-                        其他节点.push(元素);
-                    } else {
-                        优选IP.push(元素);
+                        优选API.push(元素); // 归类为需要拉取的API
+                    } else if (!元素.toLowerCase().includes('://')) {
+                        优选IP.push(元素); // 归类为直连的IP或域名
                     }
                 }
                 
-                // 从优选API获取IP
+                // 1. 并发请求所有的优选API提取IP
                 if (优选API.length > 0) {
                     const 优选API的IP = await 请求优选API(优选API);
-                    优选IP.push(...优选API的IP);
+                    优选IP.push(...优选API的IP); // 合并到总列表中
                 }
                 
-                // 解析所有IP并生成节点
+                // 2. 统一解析并生成节点
                 if (优选IP.length > 0) {
                     const IP列表 = 优选IP.map(原始地址 => {
                         const regex = /^(\[[\da-fA-F:]+\]|[\d.]+|[a-zA-Z0-9](?:[a-zA-Z0-9-]*[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]*[a-zA-Z0-9])?)*)(?::(\d+))?(?:#(.+))?$/;
@@ -620,24 +589,38 @@ async function handleSubscriptionRequest(request, user, customDomain, piu, ipv4E
                     }).filter(item => item !== null);
                     
                     if (IP列表.length > 0) {
-                        const hasProtocol = evEnabled || etEnabled || vmEnabled;
-                        const useVL = hasProtocol ? evEnabled : true;
-                        
-                        if (useVL) {
-                            finalLinks.push(...generateLinksFromNewIPs(IP列表, user, nodeDomain, wsPath, echConfig));
-                        }
+                        // 【附赠修复】：使用统一函数，解决原版多行模式下不支持 Trojan/VMess 的 Bug
+                        await addNodesFromList(IP列表);
                     }
                 }
-            } else {
-                // 原有的GitHub优选逻辑（单URL）
+            } 
+            // 如果只有一行，且是以 https:// 开头的优选API
+            else if (piu && piu.toLowerCase().startsWith('https://')) {
+                const 优选API的IP = await 请求优选API([piu]);
+                if (优选API的IP && 优选API的IP.length > 0) {
+                    const IP列表 = 优选API的IP.map(原始地址 => {
+                        const regex = /^(\[[\da-fA-F:]+\]|[\d.]+|[a-zA-Z0-9](?:[a-zA-Z0-9-]*[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]*[a-zA-Z0-9])?)*)(?::(\d+))?(?:#(.+))?$/;
+                        const match = 原始地址.match(regex);
+                        if (match) {
+                            return {
+                                ip: match[1].replace(/[\[\]]/g, ''),
+                                port: parseInt(match[2] || 443),
+                                name: match[3] || match[1].replace(/[\[\]]/g, '')
+                            };
+                        }
+                        return null;
+                    }).filter(item => item !== null);
+                    
+                    if (IP列表.length > 0) {
+                        await addNodesFromList(IP列表);
+                    }
+                }
+            } 
+            // 最原始的单行文本解析逻辑（非API的纯文本列表）
+            else {
                 const newIPList = await fetchAndParseNewIPs(piu);
                 if (newIPList.length > 0) {
-                    const hasProtocol = evEnabled || etEnabled || vmEnabled;
-                    const useVL = hasProtocol ? evEnabled : true;
-                    
-                    if (useVL) {
-                        finalLinks.push(...generateLinksFromNewIPs(newIPList, user, nodeDomain, wsPath, echConfig));
-                    }
+                    await addNodesFromList(newIPList);
                 }
             }
         } catch (error) {
@@ -1470,9 +1453,9 @@ function generateHomePage(scuValue) {
             }
             
             // 添加协议选择
-            if (switches.switchVL) subscriptionUrl += '&ev=yes';
-            if (switches.switchTJ) subscriptionUrl += '&et=yes';
-            if (switches.switchVM) subscriptionUrl += '&mess=yes';
+            subscriptionUrl += '&ev=' + (switches.switchVL ? 'yes' : 'no');
+            subscriptionUrl += '&et=' + (switches.switchTJ ? 'yes' : 'no');
+            subscriptionUrl += '&mess=' + (switches.switchVM ? 'yes' : 'no');
             
             if (!ipv4Enabled) subscriptionUrl += '&ipv4=no';
             if (!ipv6Enabled) subscriptionUrl += '&ipv6=no';
