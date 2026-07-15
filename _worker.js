@@ -37,7 +37,8 @@ const defaultIPURL = `https://raw.githubusercontent.com/qwer-search/bestip/refs/
 https://bestcf.pages.dev/wetest/ipv4.txt
 https://bestcf.pages.dev/tiancheng/mini.txt
 https://bestcf.pages.dev/vps789/top20.txt
-https://090227.pages.dev/bestcf?isp=all&ips=20`;
+https://090227.pages.dev/bestcf?isp=all&ips=20
+https://bestcf.pages.dev/random-region/GB/50.txt`;
 
 // UUID验证
 function isValidUUID(str) {
